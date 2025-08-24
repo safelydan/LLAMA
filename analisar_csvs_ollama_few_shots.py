@@ -6,17 +6,122 @@ import requests
 import pandas as pd
 from typing import Optional, Tuple, List, Dict
 
+# =========================
+# Configuração do Prompt
+# =========================
 
 DEFAULT_SYSTEM = "You are an expert in sentiment analysis."
-USER_TEMPLATE = (
+
+PROMPT_HEADER = (
     "You are an expert in sentiment analysis. "
     "Classify the following YouTube music video comment as Positive, Negative, or Neutral, "
     "and justify your answer in a short sentence.\n\n"
     "Return ONLY a valid JSON object with EXACTLY two fields and NOTHING ELSE (no code fences):\n"
     "{{\"sentiment\":\"Positive|Negative|Neutral\",\"justification\":\"<short sentence>\"}}\n\n"
-    "Comment:\n{comment}"
+    "Follow the output style shown in the examples below.\n"
 )
 
+# Exemplos few-shot (NEGATIVE, POSITIVE, NEUTRAL)
+FEW_SHOT = [
+    # === NEGATIVE ===
+    (
+        "this won a grammy?? well its givin DEI vibes 😂😂😂😂😂😂😂😂😂😂😂😂😂😂😂😂😂😂😂😂",
+        '{"sentiment":"Negative","justification":"Sarcastic remark ridiculing the Grammy win."}'
+    ),
+    (
+        "The newest generation has ruined music! Just terrible, horrible singing, terrible melody…. You are all lost in ur selfie addiction and TikTok waste of time…",
+        '{"sentiment":"Negative","justification":"Strongly criticizes modern music and culture in harsh terms."}'
+    ),
+    (
+        "Modern day lyrics is so immoral and no class. Make the genitalia water? Really?",
+        '{"sentiment":"Negative","justification":"Condemns lyrics as immoral and classless."}'
+    ),
+    (
+        "She did it again. Olivia somehow managed to be more generic than Taylor Swift. She carefully handpicked another one of the most generic situations in life and is pretending she wrote and filmed a masterpiece. The delusion is beyond. And the people who likes her music are the most basic I ever witnessed in my lifetime. That's impressive. What a load of shit.",
+        '{"sentiment":"Negative","justification":"Dismisses Olivia\'s song as generic and insulting to listeners."}'
+    ),
+    (
+        "This morbid song really sucks , one of the top 5 worst songs of all time",
+        '{"sentiment":"Negative","justification":"Calls the song terrible and among the worst ever."}'
+    ),
+
+    # === POSITIVE ===
+    (
+        "I'm a 27 year old straight black man and I love this song. I also like grins, you, and what  I like. What I like is special because I first heard it the summer before I went to college in 2014, I remember being so enthusiastic and happy about leaving my hometown and never having to go back to high school which I hated , yes I know it came out in 2013 but 2014 was when I first heard it . Everytime I hear it the memories and emotions from that summer come back",
+        '{"sentiment":"Positive","justification":"Expresses deep love for the song and associates it with joyful memories."}'
+    ),
+    (
+        "I LOVE feel good music! The kind that makes you feel like you’re in the 1960’s floating on a cloud sipping lemonade in the summer with a nice breeze!!! “Say So” by Doja Cat gives me same vibe! Love this!",
+        '{"sentiment":"Positive","justification":"Describes euphoric feelings and strong enjoyment of the music."}'
+    ),
+    (
+        "This is thrilling. Everything we could have wanted from her new era - it feels like all previous eras of Gaga are present on this record - we hear the virtuoso pianist, the rock star, the pop star, the jazz vocalist taking risks, the dark synth queen … and a totally unique artistic voice - one that can look at the whole of humanity good and bad and deliver something of beauty - with depth and emotional range and yet the same time - also still, to put simply - a catchy hook laden pop song! No one can touch her! Thrilling!",
+        '{"sentiment":"Positive","justification":"Extensive praise for Gaga\'s artistry and uniqueness."}'
+    ),
+    (
+        "A true masterpiece of art and creativity. The vocals are impeccable. The passion of music is life. Thank you Gaga for your time and works.",
+        '{"sentiment":"Positive","justification":"Labels it a masterpiece with impeccable vocals and passion."}'
+    ),
+    (
+        "This song is a lot more harmonically sophisticated than it seems at first. The modal shifts and dissonant chords really get under your skin... in the best possible way.",
+        '{"sentiment":"Positive","justification":"Highlights harmonic sophistication and praises the effect."}'
+    ),
+
+    # === NEUTRAL ===
+    (
+        "First verse sounds so much like Rihanna It's just ok. I wish the lyrics were a little better.",
+        '{"sentiment":"Neutral","justification":"Mixed reaction without strong polarity."}'
+    ),
+    (
+        "Well...not that great tbh (sorry for sharing opinion). Melody is to broken (chorus is ok), voice as always is good, lyrics a bit... juvenile (and give me cure vibe) - just not what I was expecting tbh",
+        '{"sentiment":"Neutral","justification":"Balanced remarks with positives and negatives."}'
+    ),
+    (
+        "Chorus is catchy but overall sounds dated. Don\'t think this\'ll chart well. Hope I\'m wrong - excited for the album.",
+        '{"sentiment":"Neutral","justification":"Notes pros and cons and expresses uncertainty."}'
+    ),
+    (
+        "I love Sabrina so much but I really think she doesn’t deserve Best Pop Vocal Album Sabrina i love you so much and you’re slay album but there is no way your vocals win Ariana vocals,@adirdayan123,2025-07-10T14:00:48Z,2",
+        '{"sentiment":"Neutral","justification":"Affection plus criticism; overall mixed stance."}'
+    ),
+]
+
+USE_FEW_SHOT = True
+
+def build_user_prompt(comment: str) -> str:
+    """
+    Constrói o prompt final. Se USE_FEW_SHOT=True, injeta os exemplos.
+    """
+    if not USE_FEW_SHOT or not FEW_SHOT:
+        return (
+            "You are an expert in sentiment analysis. "
+            "Classify the following YouTube music video comment as Positive, Negative, or Neutral, "
+            "and justify your answer in a short sentence.\n\n"
+            "Return ONLY a valid JSON object with EXACTLY two fields and NOTHING ELSE (no code fences):\n"
+            "{{\"sentiment\":\"Positive|Negative|Neutral\",\"justification\":\"<short sentence>\"}}\n\n"
+            f"Comment:\n{comment}"
+        )
+
+    examples = []
+    for ex_in, ex_out in FEW_SHOT:
+        examples.append(
+            "Example\n"
+            "Comment:\n" + ex_in + "\n"
+            "Assistant:\n" + ex_out + "\n"
+        )
+    examples_block = "\n".join(examples).strip()
+
+    final_task = (
+        "Now classify the NEW comment below. "
+        "Return ONLY the JSON object, with no extra text.\n\n"
+        f"Comment:\n{comment}"
+    )
+
+    return PROMPT_HEADER + "\n" + examples_block + "\n\n" + final_task
+
+# =========================
+# Demais utilitários
+# =========================
 
 AUTO_COLUMNS = [
     "comment", "comentario", "comentários", "texto", "text",
@@ -46,19 +151,17 @@ def _strip_code_fences(s: str) -> str:
     return s.strip()
 
 def _collapse_spaces(s: str) -> str:
-
     return re.sub(r"\s+", " ", (s or "").strip())
 
 def parse_model_output(raw: str) -> Tuple[Optional[str], Optional[str]]:
-
     if not raw:
         return None, None
-
     if raw.startswith("__ERROR__"):
         return None, raw
 
     cleaned = _strip_code_fences(raw)
 
+    # Tenta JSON direto
     try:
         obj = json.loads(cleaned)
         sent = obj.get("sentiment")
@@ -68,11 +171,13 @@ def parse_model_output(raw: str) -> Tuple[Optional[str], Optional[str]]:
     except Exception:
         pass
 
+    # Tenta regex
     m_sent = re.search(r'"sentiment"\s*:\s*"([^"]+)"', cleaned, flags=re.IGNORECASE)
     m_just = re.search(r'"justification"\s*:\s*"([^"]+)"', cleaned, flags=re.IGNORECASE)
     if m_sent and m_just:
         return _collapse_spaces(m_sent.group(1)), _collapse_spaces(m_just.group(1))
 
+    # Heurística simples
     lowered = cleaned.lower()
     guess = None
     if "positive" in lowered:
@@ -112,6 +217,10 @@ def normalize_sentiment(s: Optional[str]) -> Optional[str]:
         return "Neutral"
     return s.capitalize()
 
+# =========================
+# Pipeline CSV
+# =========================
+
 def analisar_csv(caminho_csv: str, url: str, model: str, output_dir: str):
     df = None
     for enc in ("utf-8", "utf-8-sig", "latin-1"):
@@ -139,7 +248,7 @@ def analisar_csv(caminho_csv: str, url: str, model: str, output_dir: str):
         if not comentario:
             registros.append({
                 "arquivo": base,
-                "linha_csv": idx + 2, 
+                "linha_csv": idx + 2,  # +2: cabeçalho + índice base 0
                 "comentario": "",
                 "sentimento": "",
                 "justificativa": "Linha vazia",
@@ -149,7 +258,9 @@ def analisar_csv(caminho_csv: str, url: str, model: str, output_dir: str):
             })
             continue
 
-        user_msg = USER_TEMPLATE.format(comment=comentario)
+        # Prompt com few-shot
+        user_msg = build_user_prompt(comentario)
+
         raw = chamar_api(url, model, DEFAULT_SYSTEM, user_msg)
         sent, just = parse_model_output(raw)
         sent = normalize_sentiment(sent) or ""
@@ -157,7 +268,7 @@ def analisar_csv(caminho_csv: str, url: str, model: str, output_dir: str):
 
         registros.append({
             "arquivo": base,
-            "linha_csv": idx + 2, 
+            "linha_csv": idx + 2,
             "comentario": comentario.replace("\n", " ").strip(),
             "sentimento": sent,
             "justificativa": just,
@@ -174,17 +285,12 @@ def analisar_csv(caminho_csv: str, url: str, model: str, output_dir: str):
     colunas_completas = [
         "arquivo", "linha_csv", "comentario",
         "sentimento", "justificativa",
-        "modelo", "timestamp", "resposta_bruta",
-        "sentimento_manual" 
+        "modelo", "timestamp", "resposta_bruta"
     ]
-
-    for r in registros:
-        r["sentimento_manual"] = ""
-
     out_df = pd.DataFrame(registros, columns=colunas_completas)
 
     out_df_display = (
-        out_df[["sentimento", "comentario", "justificativa", "sentimento_manual"]]
+        out_df[["sentimento", "comentario", "justificativa"]]
         .rename(columns={"sentimento": "classificacao"})
     )
 
@@ -218,8 +324,11 @@ def analisar_pasta(input_dir: str, url: str, model: str, output_dir: str):
         caminho_csv = os.path.join(input_dir, arquivo)
         analisar_csv(caminho_csv, url, model, output_dir)
 
-if __name__ == "__main__":
+# =========================
+# Execução
+# =========================
 
+if __name__ == "__main__":
     url = "http://127.0.0.1:11434/api/chat"
     model = "gemma3:4b"
 
